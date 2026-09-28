@@ -1,0 +1,40 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Purchasing Agent</title>
+<style>
+:root{--bg:#f4f1ea;--ink:#1d2320;--mut:#6b716c;--card:#fffdf8;--line:#d9d3c4;--ac:#1f5c4a;--warn:#b5651d;--bad:#a63d2f}
+@media(prefers-color-scheme:dark){:root{--bg:#141816;--ink:#e8e6df;--mut:#9aa19b;--card:#1c211e;--line:#2f3632;--ac:#5fb597;--warn:#e0a060;--bad:#e07a6a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Georgia,serif;padding:24px;max-width:960px;margin-inline:auto}
+h1{font-size:26px;margin:0}.sub{color:var(--mut);margin:4px 0 20px;font-family:system-ui,sans-serif;font-size:13px}
+button{font:600 13px system-ui,sans-serif;padding:9px 16px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);border-radius:4px;cursor:pointer;margin-right:8px}
+button.ghost{background:none;color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin:12px 0}
+.tag{font:700 11px system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:3px;border:1px solid}
+.executed{color:var(--ac)}.pending_approval{color:var(--warn)}.skipped{color:var(--bad)}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+.trace{font:12px ui-monospace,monospace;color:var(--mut);border-left:2px solid var(--line);padding-left:10px;margin-top:6px;overflow-x:auto}
+.trace b{color:var(--ink)}.ok{color:var(--ac)}.no{color:var(--bad)}
+</style></head><body>
+<h1>AI Purchasing Agent</h1>
+<div class="sub">Investigate → Decide → Act → Validate · low-stock replenishment</div>
+<button onclick="run()">Run replenishment</button><button class="ghost" onclick="reset()">Reset demo data</button>
+<div id="mode" class="sub" style="margin-top:14px"></div><div id="budget" class="sub" style="margin-top:14px"></div><div id="out"></div><h3>Audit trail</h3><div id="trace" class="trace"></div>
+<script>
+const $=id=>document.getElementById(id);
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(r=>r.json());
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let traceAll=[];
+function checks(v){return v?Object.entries(v.checks).map(([k,x])=>`<span class="${x?'ok':'no'}">${x?'✓':'✗'} ${k}</span>`).join(' · '):''}
+function card(r){const d=r.decision;
+ return `<div class="card" id="c-${d.sku}"><div class="row"><b>${d.sku}</b><span class="tag ${r.status}">${r.status.replace('_',' ')}</span></div>
+ <p>${esc(d.explanation||d.reason)}</p>
+ ${r.po?`<div class="trace"><b>${r.po.po_id}</b> · ${r.po.qty} × $${r.po.unit_price} = $${r.po.total}<br>${checks(r.validation)}</div>`:''}
+ ${r.status==='pending_approval'?`<button onclick="appr('${d.sku}',true)">Approve $${d.total}</button><button class="ghost" onclick="appr('${d.sku}',false)">Reject</button>`:''}</div>`}
+function showTrace(){$('trace').innerHTML=traceAll.map(t=>`<div><b>${t.step}</b> ${esc(t.msg)}</div>`).join('')}
+function showBudget(b){$('budget').textContent='Budget remaining — '+Object.entries(b).map(([k,v])=>k+': $'+v.toLocaleString()).join(' · ')}
+async function run(){const r=await post('/api/run');$('mode').textContent='Agent mode: '+(r.mode==='llm'?'LLM tool-calling + guardrails':'deterministic policy (no API key)');$('out').innerHTML=r.results.map(card).join('')||'<p>Nothing to reorder.</p>';traceAll=r.trace;showTrace();showBudget(r.budget)}
+async function appr(sku,ok){const r=await post('/api/approve',{sku,approved:ok});
+ const el=$('c-'+sku);
+ el.innerHTML=ok?`<b>${sku}</b> <span class="tag executed">executed after approval</span><div class="trace"><b>${r.po.po_id}</b> · $${r.po.total}<br>${checks(r.validation)}</div>`:`<b>${sku}</b> <span class="tag skipped">rejected by buyer</span>`;
+ if(r.trace){traceAll=traceAll.concat(r.trace);showTrace();showBudget(r.budget)}}
+async function reset(){await post('/api/reset');$('out').innerHTML='';$('trace').innerHTML='';$('budget').textContent=''}
+</script></body></html>
